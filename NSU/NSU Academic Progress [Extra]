@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NSU Academic Progress [Extra]
 // @namespace    http://tampermonkey.net/
-// @version      1.3
+// @version      1.0
 // @description  Display grade distribution and CGPA calculation
 // @author       Jobayer
 // @match        https://rds3.northsouth.edu/students/courseAnalysis/viewAnalysis*
