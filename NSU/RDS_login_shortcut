@@ -1,0 +1,45 @@
+// ==UserScript==
+// @name         NSU RDS LogIn Shortcut
+// @namespace    http://tampermonkey.net/
+// @version      1.2
+// @description  skip boring username and password pasting everytime
+// @author       Jobayer
+// @match        https://rds3.northsouth.edu/*
+// @grant        none
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    // --- CONFIGURATION ---
+    const MY_USERNAME = "";
+    const MY_PASSWORD = "";
+    // ---------------------
+
+    window.addEventListener('load', function() {
+
+        // PAGE 1: Username Page
+        const userField = document.querySelector('#UserName');
+        const nextButton = document.querySelector('input[name="commit"][value="Next"]');
+
+        if (userField && nextButton) {
+            userField.value = MY_USERNAME;
+            setTimeout(() => {
+                nextButton.click();
+            }, 300);
+            return; // Exit script once action is taken on this page
+        }
+
+        // PAGE 2: Password & Captcha Page
+        const passwordField = document.querySelector('input[name="password"]');
+        const captchaField = document.querySelector('input[name="captcha"]');
+
+        if (passwordField) {
+            passwordField.value = MY_PASSWORD;
+            // Focus on captcha so you can type immediately
+            if (captchaField) {
+                captchaField.focus();
+            }
+        }
+    });
+})();
