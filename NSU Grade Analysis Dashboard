@@ -1,0 +1,316 @@
+// ==UserScript==
+// @name         NSU Grade Analysis Dashboard
+// @namespace    http://tampermonkey.net/
+// @version      1.2
+// @description  Display grade distribution and CGPA calculation based on Credit Passed
+// @author       Jobayer
+// @match        https://rds3.northsouth.edu/students/courseAnalysis/viewAnalysis*
+// @grant        none
+// @run-at       document-idle
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    console.log('NSU Grade Dashboard script loaded');
+
+    // Function to analyze grades
+    function analyzeGrades() {
+        console.log('Starting grade analysis...');
+
+        const gradeCount = {};
+
+        // Initialize Accumulators
+        let stats = {
+            regular: { // Without Non-Credit section
+                creditsPassed: 0,
+                gradePoints: 0,
+                cgpa: 0
+            },
+            total: { // Including Non-Credit section
+                creditsPassed: 0,
+                gradePoints: 0,
+                cgpa: 0
+            },
+            courseCount: 0
+        };
+
+        // Get all tables
+        const allTables = document.querySelectorAll('table.table-bordered');
+
+        allTables.forEach((table, tableIndex) => {
+            // Determine section type by looking backwards for the nearest H3
+            let isNonCreditSection = false;
+            let isWaiverSection = false;
+
+            // Traverse DOM upwards/backwards to find the section header
+            let container = table.closest('.table-responsive') || table;
+            let sibling = container.previousElementSibling;
+
+            // Look back up to 5 siblings to find the H3
+            let attempts = 0;
+            while (sibling && attempts < 5) {
+                if (sibling.tagName === 'H3') {
+                    const headerText = sibling.textContent.trim().toLowerCase();
+                    if (headerText.includes('non credit courses')) {
+                        isNonCreditSection = true;
+                    } else if (headerText.includes('waiver')) {
+                        isWaiverSection = true;
+                    }
+                    break;
+                }
+                sibling = sibling.previousElementSibling;
+                attempts++;
+            }
+
+            if (isWaiverSection) return; // Skip waiver tables completely
+
+            const rows = table.querySelectorAll('tbody tr');
+
+            rows.forEach((row) => {
+                // Skip header rows or total rows (usually contain th)
+                if (row.querySelector('th')) return;
+
+                const cells = row.querySelectorAll('td');
+
+                // Ensure we have enough columns
+                // Index 0: Code, 1: Title, 2: Credits, 3: Grade, 4: GP, 5: Counted, 6: Credit Passed
+                if (cells.length < 7) return;
+
+                const grade = cells[3].textContent.trim();
+                const gradePoints = parseFloat(cells[4].textContent.trim());
+                // CHANGED: Using column index 6 for "Credit Passed"
+                const creditPassed = parseFloat(cells[6].textContent.trim());
+
+                // Valid row check
+                if (grade && grade !== '' && grade !== '&nbsp;') {
+
+                    // Count Grades
+                    if (gradeCount[grade]) {
+                        gradeCount[grade]++;
+                    } else {
+                        gradeCount[grade] = 1;
+                    }
+                    stats.courseCount++;
+
+                    // Numerical Calculations
+                    if (!isNaN(creditPassed) && !isNaN(gradePoints)) {
+
+                        // 1. Always add to Total (With Non-Credits)
+                        stats.total.creditsPassed += creditPassed;
+                        stats.total.gradePoints += gradePoints;
+
+                        // 2. Add to Regular ONLY if NOT in Non-Credit section
+                        if (!isNonCreditSection) {
+                            stats.regular.creditsPassed += creditPassed;
+                            stats.regular.gradePoints += gradePoints;
+                        }
+                    }
+                }
+            });
+        });
+
+        // Finalize CGPA Calculations
+        if (stats.regular.creditsPassed > 0) {
+            stats.regular.cgpa = (stats.regular.gradePoints / stats.regular.creditsPassed).toFixed(2);
+        }
+
+        if (stats.total.creditsPassed > 0) {
+            stats.total.cgpa = (stats.total.gradePoints / stats.total.creditsPassed).toFixed(2);
+        }
+
+        // Formatting totals for display
+        stats.regular.creditsPassed = stats.regular.creditsPassed.toFixed(1); // Usually .0 or .5
+        stats.total.creditsPassed = stats.total.creditsPassed.toFixed(1);
+
+        return { gradeCount, stats };
+    }
+
+    // Function to create and inject the dashboard
+    function createDashboard(data) {
+        // Remove existing dashboard if any
+        const existingDashboard = document.getElementById('grade-dashboard');
+        if (existingDashboard) existingDashboard.remove();
+
+        const { gradeCount, stats } = data;
+
+        // Sort grades (A, A-, B+, etc)
+        const gradeOrder = ['A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D+', 'D', 'F'];
+        let gradeHTML = '';
+
+        gradeOrder.forEach(g => {
+            if(gradeCount[g]) {
+                 gradeHTML += `
+                    <div class="grade-item">
+                        <span class="grade-label">${g}</span>
+                        <span class="grade-value">${gradeCount[g]}</span>
+                    </div>`;
+            }
+        });
+
+        // Add any grades found that weren't in the standard list
+        Object.keys(gradeCount).forEach(g => {
+            if(!gradeOrder.includes(g)) {
+                 gradeHTML += `
+                    <div class="grade-item">
+                        <span class="grade-label">${g}</span>
+                        <span class="grade-value">${gradeCount[g]}</span>
+                    </div>`;
+            }
+        });
+
+        const dashboard = document.createElement('div');
+        dashboard.id = 'grade-dashboard';
+        dashboard.innerHTML = `
+            <style>
+                #grade-dashboard {
+                    position: fixed;
+                    top: 80px;
+                    right: 20px;
+                    background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+                    color: white;
+                    padding: 15px;
+                    border-radius: 12px;
+                    box-shadow: 0 8px 25px rgba(0,0,0,0.3);
+                    z-index: 10000;
+                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                    width: 300px;
+                    max-height: 85vh;
+                    overflow-y: auto;
+                }
+                #grade-dashboard h2 {
+                    margin: 0 0 12px 0;
+                    font-size: 18px;
+                    font-weight: 600;
+                    text-align: center;
+                    border-bottom: 2px solid rgba(255,255,255,0.3);
+                    padding-bottom: 8px;
+                }
+                .dashboard-section {
+                    background: rgba(255,255,255,0.15);
+                    padding: 10px;
+                    border-radius: 8px;
+                    margin-bottom: 10px;
+                    backdrop-filter: blur(10px);
+                }
+                .dashboard-section h3 {
+                    margin: 0 0 8px 0;
+                    font-size: 14px;
+                    font-weight: 600;
+                    color: #e0e0e0;
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                }
+                .grade-grid {
+                    display: grid;
+                    grid-template-columns: repeat(4, 1fr);
+                    gap: 6px;
+                }
+                .grade-item {
+                    background: rgba(255,255,255,0.2);
+                    padding: 4px;
+                    border-radius: 4px;
+                    text-align: center;
+                }
+                .grade-label { font-weight: 600; font-size: 11px; display: block; color: #ccc; }
+                .grade-value { font-size: 14px; font-weight: 700; display: block; }
+
+                /* Full width boxes for summaries */
+                .cgpa-box-full {
+                    background: rgba(255,255,255,0.2);
+                    padding: 10px;
+                    border-radius: 6px;
+                    text-align: center;
+                    margin-bottom: 8px;
+                    border-left: 4px solid #4CAF50; /* Green accent */
+                }
+
+                .cgpa-box-full.secondary {
+                    border-left: 4px solid #FFC107; /* Yellow accent */
+                }
+
+                .cgpa-label {
+                    font-size: 12px;
+                    opacity: 0.9;
+                    display: block;
+                    margin-bottom: 2px;
+                }
+                .cgpa-value {
+                    font-size: 24px;
+                    font-weight: 700;
+                    display: block;
+                }
+                .cgpa-sub {
+                    font-size: 11px;
+                    opacity: 0.7;
+                }
+
+                .close-btn {
+                    position: absolute;
+                    top: 8px;
+                    right: 8px;
+                    background: transparent;
+                    border: none;
+                    color: white;
+                    font-size: 20px;
+                    cursor: pointer;
+                }
+            </style>
+
+            <button class="close-btn" id="close-dashboard">×</button>
+
+            <h2>📊 Grade Analysis</h2>
+
+            <div class="dashboard-section">
+                <h3>Academic Summary</h3>
+
+                <div class="cgpa-box-full">
+                    <span class="cgpa-label">CGPA (without Non-Credits)</span>
+                    <span class="cgpa-value">${stats.regular.cgpa}</span>
+                    <span class="cgpa-sub">Passed Credits: ${stats.regular.creditsPassed}</span>
+                </div>
+
+                <div class="cgpa-box-full secondary">
+                    <span class="cgpa-label">CGPA (Including Non-Credits)</span>
+                    <span class="cgpa-value">${stats.total.cgpa}</span>
+                    <span class="cgpa-sub">Passed Credits: ${stats.total.creditsPassed}</span>
+                </div>
+            </div>
+
+            <div class="dashboard-section">
+                <h3>Grade Distribution</h3>
+                <div class="grade-grid">
+                    ${gradeHTML}
+                </div>
+                <div style="text-align:center; margin-top:5px; font-size:11px;">
+                    Total Courses: ${stats.courseCount}
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(dashboard);
+
+        document.getElementById('close-dashboard').addEventListener('click', function() {
+            dashboard.style.display = 'none';
+        });
+    }
+
+    // Initialization
+    function init() {
+        // Find tables to check if DOM is ready
+        const tables = document.querySelectorAll('table.table-bordered');
+        if (tables.length > 0) {
+            const analysisData = analyzeGrades();
+            createDashboard(analysisData);
+        } else {
+            setTimeout(init, 500);
+        }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        setTimeout(init, 500);
+    }
+
+})();
